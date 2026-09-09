@@ -3,14 +3,12 @@ Passos Mágicos — Painel Preditivo de Risco de Defasagem
 Aplicação Streamlit que disponibiliza o modelo treinado (RandomForest, AUC ~0.87)
 para uso da equipe pedagógica: predição individual e predição em lote.
 """
-import io
 from datetime import datetime
 
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 
 # --------------------------------------------------------------------------- CONFIG
 st.set_page_config(
@@ -33,7 +31,7 @@ NOMES_AMIGAVEIS = {
 }
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Carregando modelo...")
 def carregar_modelo(path=MODEL_PATH):
     return joblib.load(path)
 
@@ -46,7 +44,7 @@ def classificar_risco(p):
     return "🔴 Alto", "#c62828"
 
 
-def gerar_template_csv(features):
+def gerar_template_csv():
     df = pd.DataFrame(
         {
             "RA": ["RA-exemplo-1", "RA-exemplo-2"],
@@ -63,7 +61,31 @@ def gerar_template_csv(features):
     return df.to_csv(index=False).encode("utf-8")
 
 
-artifact = carregar_modelo()
+def grafico_importancia(importancias):
+    imp = pd.Series(importancias).sort_values(ascending=False)
+    imp.index = [NOMES_AMIGAVEIS.get(i, i) for i in imp.index]
+    st.bar_chart(imp.rename("Importância"))
+
+
+# --------------------------------------------------------------------------- CARREGAMENTO (com tratamento de erro)
+try:
+    artifact = carregar_modelo()
+except FileNotFoundError:
+    st.error(
+        f"Arquivo `{MODEL_PATH}` não encontrado. Verifique se ele foi enviado junto "
+        f"com `app.py` na raiz do repositório."
+    )
+    st.stop()
+except Exception as e:
+    st.error(
+        "Não foi possível carregar o modelo. Isso costuma acontecer quando as "
+        "versões de `scikit-learn`/`numpy` instaladas (ver `requirements.txt`) são "
+        "diferentes das usadas para treinar o modelo. Retreine com `train_model.py` "
+        "no mesmo ambiente do deploy, ou alinhe as versões.\n\n"
+        f"Detalhe técnico: `{type(e).__name__}: {e}`"
+    )
+    st.stop()
+
 model = artifact["model"]
 FEATURES = artifact["features"]
 metrics = artifact["metrics"]
@@ -135,12 +157,7 @@ if pagina == "Predição individual":
                 )
 
         st.markdown("#### Contribuição de cada indicador (importância global do modelo)")
-        imp_series = pd.Series(importancias).sort_values()
-        imp_series.index = [NOMES_AMIGAVEIS[i] for i in imp_series.index]
-        fig, ax = plt.subplots(figsize=(7, 3.5))
-        imp_series.plot(kind="barh", ax=ax, color="#6a4c93")
-        ax.set_xlabel("Importância no modelo")
-        st.pyplot(fig)
+        grafico_importancia(importancias)
 
 # --------------------------------------------------------------------------- PÁGINA 2
 elif pagina == "Predição em lote (upload)":
@@ -152,7 +169,7 @@ elif pagina == "Predição em lote (upload)":
 
     st.download_button(
         "⬇️ Baixar modelo de planilha (CSV)",
-        data=gerar_template_csv(FEATURES),
+        data=gerar_template_csv(),
         file_name="template_predicao_passos_magicos.csv",
         mime="text/csv",
     )
@@ -207,14 +224,15 @@ elif pagina == "Predição em lote (upload)":
         ]
         st.dataframe(df_valid[cols_mostrar], use_container_width=True, height=420)
 
-        fig, ax = plt.subplots(figsize=(8, 3.5))
-        ax.hist(proba, bins=20, color="#6a4c93", edgecolor="white")
-        ax.axvline(0.33, color="orange", linestyle="--", label="limite médio")
-        ax.axvline(0.66, color="red", linestyle="--", label="limite alto")
-        ax.set_xlabel("Probabilidade de risco")
-        ax.set_ylabel("Nº de alunos")
-        ax.legend()
-        st.pyplot(fig)
+        st.markdown("#### Distribuição do risco entre os alunos avaliados")
+        faixas = pd.cut(
+            proba,
+            bins=[0, 0.33, 0.66, 1.0],
+            labels=["Baixo (<33%)", "Médio (33–66%)", "Alto (≥66%)"],
+            include_lowest=True,
+        )
+        contagem = faixas.value_counts().reindex(["Baixo (<33%)", "Médio (33–66%)", "Alto (≥66%)"])
+        st.bar_chart(contagem.rename("Nº de alunos"))
 
         csv_saida = df_valid[cols_mostrar].to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -252,16 +270,11 @@ dos indicadores do ano corrente — permitindo agir *antes* de a defasagem se co
 """)
 
     st.markdown("#### Importância das variáveis")
-    imp_series = pd.Series(importancias).sort_values()
-    imp_series.index = [NOMES_AMIGAVEIS[i] for i in imp_series.index]
-    fig, ax = plt.subplots(figsize=(8, 4))
-    imp_series.plot(kind="barh", ax=ax, color="#6a4c93")
-    ax.set_xlabel("Importância no modelo")
-    st.pyplot(fig)
+    grafico_importancia(importancias)
 
     st.markdown("#### Faixa de valores observada no treinamento (referência)")
     df_ranges = pd.DataFrame(ranges).T.round(2)
-    df_ranges.index = [NOMES_AMIGAVEIS[i] for i in df_ranges.index]
+    df_ranges.index = [NOMES_AMIGAVEIS.get(i, i) for i in df_ranges.index]
     st.dataframe(df_ranges, use_container_width=True)
 
     st.info(
