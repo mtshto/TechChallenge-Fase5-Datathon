@@ -1,8 +1,7 @@
-"""
-Passos Mágicos — Painel Preditivo de Risco de Defasagem
-Aplicação Streamlit que disponibiliza o modelo treinado (RandomForest, AUC ~0.87)
-para uso da equipe pedagógica: predição individual e predição em lote.
-"""
+"""Aplicação Streamlit para apoio preventivo à equipe da Passos Mágicos."""
+
+from __future__ import annotations
+
 from datetime import datetime
 
 import joblib
@@ -10,7 +9,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# --------------------------------------------------------------------------- CONFIG
+from model_utils import (
+    FEATURE_LABELS,
+    RiskBands,
+    classify_risk,
+    validate_prediction_batch,
+)
+
+
 st.set_page_config(
     page_title="Passos Mágicos | Risco de Defasagem",
     page_icon="🔮",
@@ -19,267 +25,213 @@ st.set_page_config(
 
 MODEL_PATH = "model_risco_defasagem.pkl"
 
-NOMES_AMIGAVEIS = {
-    "IAA_N": "IAA — Autoavaliação",
-    "IEG_N": "IEG — Engajamento",
-    "IPS_N": "IPS — Psicossocial",
-    "IDA_N": "IDA — Desempenho Acadêmico",
-    "IAN_N": "IAN — Adequação de Nível",
-    "IPV_N": "IPV — Ponto de Virada",
-    "Defasagem_N": "Defasagem atual (anos)",
-    "Fase_num": "Fase atual",
-}
-
 
 @st.cache_resource(show_spinner="Carregando modelo...")
-def carregar_modelo(path=MODEL_PATH):
-    return joblib.load(path)
+def load_artifact(path=MODEL_PATH):
+    artifact = joblib.load(path)
+    if artifact.get("artifact_version", 0) < 2:
+        raise ValueError(
+            "O modelo foi gerado pela versão antiga do treinamento. "
+            "Execute novamente: python train_model.py --data <arquivo.xlsx>."
+        )
+    required = {
+        "model",
+        "raw_features",
+        "target_definition",
+        "threshold",
+        "risk_bands",
+        "metrics",
+        "input_ranges",
+    }
+    missing = required - set(artifact)
+    if missing:
+        raise ValueError(f"Artefato incompleto. Chaves ausentes: {sorted(missing)}")
+    return artifact
 
 
-def classificar_risco(p):
-    if p < 0.33:
-        return "🟢 Baixo", "#2e7d32"
-    if p < 0.66:
-        return "🟡 Médio", "#f9a825"
-    return "🔴 Alto", "#c62828"
+def read_uploaded_file(uploaded_file) -> pd.DataFrame:
+    name = uploaded_file.name.lower()
+    if name.endswith(".xlsx"):
+        return pd.read_excel(uploaded_file)
+    try:
+        return pd.read_csv(uploaded_file, sep=None, engine="python")
+    except Exception:
+        uploaded_file.seek(0)
+        return pd.read_csv(uploaded_file, sep=";")
 
 
-def gerar_template_csv():
-    df = pd.DataFrame(
-        {
-            "RA": ["RA-exemplo-1", "RA-exemplo-2"],
-            "IAA_N": [8.0, 5.5],
-            "IEG_N": [7.5, 4.0],
-            "IPS_N": [6.8, 5.0],
-            "IDA_N": [7.0, 4.5],
-            "IAN_N": [10.0, 5.0],
-            "IPV_N": [7.2, 4.8],
-            "Defasagem_N": [0, -1],
-            "Fase_num": [3, 4],
-        }
+def input_widget(feature: str, ranges: dict):
+    label = FEATURE_LABELS.get(feature, feature)
+    limits = ranges[feature]
+    lower = float(limits["hard_min"])
+    upper = float(limits["hard_max"])
+    observed_mean = limits.get("observed_mean")
+    default = float(observed_mean) if observed_mean is not None else (lower + upper) / 2
+    default = min(max(default, lower), upper)
+
+    if feature in {"Defasagem_N", "Fase_num"}:
+        return st.number_input(label, int(lower), int(upper), int(round(default)), 1)
+    step = 0.5 if feature == "IAN_N" else 0.1
+    return st.slider(label, lower, upper, default, step)
+
+
+def personalized_recommendations(row: pd.Series) -> list[str]:
+    recommendations = []
+    if row.get("IDA_N", 10) < 6 or row.get("IAN_N", 10) < 6:
+        recommendations.append("Revisar necessidades pedagógicas e considerar reforço direcionado.")
+    if row.get("IEG_N", 10) < 6:
+        recommendations.append("Investigar participação, frequência e vínculo com as atividades.")
+    if row.get("IPS_N", 10) < 6:
+        recommendations.append("Sugerir avaliação psicossocial pela equipe responsável.")
+    if "IPP_N" in row and pd.notna(row["IPP_N"]) and row["IPP_N"] < 6:
+        recommendations.append("Revisar a avaliação psicopedagógica e seu plano de acompanhamento.")
+    if pd.notna(row.get("IAA_N")) and pd.notna(row.get("IDA_N")) and row["IAA_N"] - row["IDA_N"] > 2:
+        recommendations.append("Conversar sobre a diferença entre autoavaliação e desempenho observado.")
+    return recommendations or ["Manter acompanhamento de rotina e atualizar os indicadores no próximo ciclo."]
+
+
+def build_template(features: list[str], ranges: dict) -> bytes:
+    row = {"RA": "RA-exemplo-1"}
+    for feature in features:
+        mean = ranges[feature].get("observed_mean")
+        row[feature] = round(float(mean), 2) if mean is not None else 0
+    return pd.DataFrame([row]).to_csv(index=False, sep=";").encode("utf-8-sig")
+
+
+def show_global_importance(artifact):
+    values = artifact.get("global_permutation_importance", {})
+    if not values:
+        st.info("Importância global não disponível no artefato.")
+        return
+    series = pd.Series(values).sort_values(ascending=False)
+    series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
+    st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
+    st.caption(
+        "Importância global por permutação no teste temporal. Este gráfico não explica "
+        "a decisão de um aluno específico."
     )
-    return df.to_csv(index=False).encode("utf-8")
 
 
-def grafico_importancia(importancias):
-    imp = pd.Series(importancias).sort_values(ascending=False)
-    imp.index = [NOMES_AMIGAVEIS.get(i, i) for i in imp.index]
-    st.bar_chart(imp.rename("Importância"))
-
-
-# --------------------------------------------------------------------------- CARREGAMENTO (com tratamento de erro)
 try:
-    artifact = carregar_modelo()
+    artifact = load_artifact()
 except FileNotFoundError:
-    st.error(
-        f"Arquivo `{MODEL_PATH}` não encontrado. Verifique se ele foi enviado junto "
-        f"com `app.py` na raiz do repositório."
-    )
+    st.error(f"Arquivo `{MODEL_PATH}` não encontrado. Treine o modelo antes do deploy.")
     st.stop()
-except Exception as e:
-    st.error(
-        "Não foi possível carregar o modelo. Isso costuma acontecer quando as "
-        "versões de `scikit-learn`/`numpy` instaladas (ver `requirements.txt`) são "
-        "diferentes das usadas para treinar o modelo. Retreine com `train_model.py` "
-        "no mesmo ambiente do deploy, ou alinhe as versões.\n\n"
-        f"Detalhe técnico: `{type(e).__name__}: {e}`"
-    )
+except Exception as error:
+    st.error(f"Não foi possível carregar o modelo: {type(error).__name__}: {error}")
     st.stop()
 
 model = artifact["model"]
-FEATURES = artifact["features"]
-metrics = artifact["metrics"]
-importancias = artifact["feature_importances"]
-ranges = artifact["feature_ranges"]
+FEATURES = artifact["raw_features"]
+RANGES = artifact["input_ranges"]
+BANDS = RiskBands.from_mapping(artifact["risk_bands"])
+METRICS = artifact["metrics"]["temporal_holdout"]
 
-# --------------------------------------------------------------------------- SIDEBAR
 st.sidebar.title("🔮 Passos Mágicos")
-st.sidebar.caption("Painel preditivo de risco de defasagem")
-pagina = st.sidebar.radio(
-    "Navegação",
-    ["Predição individual", "Predição em lote (upload)", "Sobre o modelo"],
-)
+st.sidebar.caption("Apoio preventivo - decisão final sempre humana")
+page = st.sidebar.radio("Navegação", ["Predição individual", "Predição em lote", "Sobre o modelo"])
 st.sidebar.markdown("---")
-st.sidebar.metric("AUC do modelo (validação cruzada)", f"{metrics['auc_cv_mean']:.2f}")
-st.sidebar.metric("Acurácia (holdout)", f"{metrics['accuracy_holdout']:.0%}")
-st.sidebar.caption(f"Treinado em: {artifact['trained_at'][:10]}")
+st.sidebar.metric("PR-AUC temporal", f"{METRICS['pr_auc']:.3f}")
+st.sidebar.metric("Recall no threshold", f"{METRICS['recall']:.0%}")
+st.sidebar.caption(f"Threshold prioritário: {artifact['threshold']:.3f}")
 
-# --------------------------------------------------------------------------- PÁGINA 1
-if pagina == "Predição individual":
+if page == "Predição individual":
     st.title("Predição individual de risco de defasagem")
-    st.markdown(
-        """Informe os indicadores **atuais** do aluno (ano N). O modelo estima a
-        probabilidade de o aluno apresentar **defasagem de nível (Fase efetiva < Fase ideal)
-        no ano seguinte**, com base em padrões observados nas turmas de 2022–2024."""
-    )
+    st.write(artifact["target_definition"])
+    with st.form("individual"):
+        values = {}
+        columns = st.columns(2)
+        for index, feature in enumerate(FEATURES):
+            with columns[index % 2]:
+                values[feature] = input_widget(feature, RANGES)
+        submitted = st.form_submit_button("Calcular risco", type="primary")
 
-    with st.form("form_individual"):
-        c1, c2 = st.columns(2)
-        with c1:
-            iaa = st.slider("IAA — Autoavaliação", 0.0, 10.0, 7.0, 0.1)
-            ieg = st.slider("IEG — Engajamento", 0.0, 10.0, 7.0, 0.1)
-            ips = st.slider("IPS — Psicossocial", 0.0, 10.0, 7.0, 0.1)
-            ida = st.slider("IDA — Desempenho Acadêmico", 0.0, 10.0, 6.5, 0.1)
+    if submitted:
+        frame = pd.DataFrame([values], columns=FEATURES)
+        probability = float(model.predict_proba(frame)[0, 1])
+        classification = classify_risk(probability, BANDS)
+        c1, c2 = st.columns([1, 2])
+        c1.metric("Probabilidade calibrada", f"{probability:.1%}")
+        c1.metric("Faixa operacional", classification)
+        c1.progress(float(np.clip(probability, 0, 1)))
         with c2:
-            ian = st.slider("IAN — Adequação de Nível", 0.0, 10.0, 7.5, 0.5)
-            ipv = st.slider("IPV — Ponto de Virada", 0.0, 10.0, 6.5, 0.1)
-            defasagem = st.number_input("Defasagem atual (anos; negativo = atrasado)", -5, 3, 0, 1)
-            fase = st.number_input("Fase atual (0 = ALFA)", 0, 9, 3, 1)
+            st.subheader("Orientações para avaliação humana")
+            for recommendation in personalized_recommendations(frame.iloc[0]):
+                st.write(f"- {recommendation}")
+        st.subheader("Importância global do modelo")
+        show_global_importance(artifact)
 
-        enviado = st.form_submit_button("Calcular risco", type="primary")
-
-    if enviado:
-        entrada = pd.DataFrame([[iaa, ieg, ips, ida, ian, ipv, defasagem, fase]], columns=FEATURES)
-        proba = model.predict_proba(entrada)[0, 1]
-        label, cor = classificar_risco(proba)
-
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.metric("Probabilidade de defasagem no próximo ano", f"{proba:.0%}")
-            st.markdown(f"### Classificação: <span style='color:{cor}'>{label}</span>", unsafe_allow_html=True)
-            st.progress(min(max(proba, 0.0), 1.0))
-
-        with col2:
-            if proba >= 0.66:
-                st.error(
-                    "**Ação recomendada:** priorizar para acompanhamento pedagógico e "
-                    "psicossocial imediato. Reforço acadêmico direcionado e checagem de IPS/IEG."
-                )
-            elif proba >= 0.33:
-                st.warning(
-                    "**Ação recomendada:** monitorar de perto na próxima avaliação. "
-                    "Reforçar engajamento (IEG) e checar consistência entre IDA e IAN."
-                )
-            else:
-                st.success(
-                    "**Ação recomendada:** manter acompanhamento de rotina — indicadores "
-                    "atuais sugerem baixo risco de defasagem no próximo ciclo."
-                )
-
-        st.markdown("#### Contribuição de cada indicador (importância global do modelo)")
-        grafico_importancia(importancias)
-
-# --------------------------------------------------------------------------- PÁGINA 2
-elif pagina == "Predição em lote (upload)":
+elif page == "Predição em lote":
     st.title("Predição em lote")
-    st.markdown(
-        """Envie uma planilha (CSV ou XLSX) com um aluno por linha e as colunas de
-        indicadores listadas abaixo. Baixe o modelo de planilha se precisar de referência."""
-    )
-
+    st.write("O resultado preserva linhas inválidas e informa o motivo do erro.")
     st.download_button(
-        "⬇️ Baixar modelo de planilha (CSV)",
-        data=gerar_template_csv(),
-        file_name="template_predicao_passos_magicos.csv",
-        mime="text/csv",
+        "Baixar template CSV",
+        build_template(FEATURES, RANGES),
+        "template_predicao_passos_magicos.csv",
+        "text/csv",
     )
-
-    st.caption(
-        "Colunas esperadas: `RA` (opcional), " + ", ".join(f"`{f}`" for f in FEATURES)
-    )
-
-    arquivo = st.file_uploader("Arquivo de alunos", type=["csv", "xlsx"])
-
-    if arquivo is not None:
+    uploaded = st.file_uploader("Envie CSV ou XLSX", type=["csv", "xlsx"])
+    if uploaded is not None:
         try:
-            if arquivo.name.endswith(".csv"):
-                df_in = pd.read_csv(arquivo)
-            else:
-                df_in = pd.read_excel(arquivo)
-        except Exception as e:
-            st.error(f"Não foi possível ler o arquivo: {e}")
+            original = read_uploaded_file(uploaded)
+        except Exception as error:
+            st.error(f"Não foi possível ler o arquivo: {error}")
+            st.stop()
+        if original.empty:
+            st.error("O arquivo não possui linhas para processamento.")
             st.stop()
 
-        faltando = [f for f in FEATURES if f not in df_in.columns]
-        if faltando:
-            st.error(
-                "As seguintes colunas obrigatórias não foram encontradas no arquivo: "
-                + ", ".join(faltando)
-                + ". Use o modelo de planilha acima como referência."
-            )
-            st.stop()
-
-        df_score = df_in.copy()
-        validos = df_score[FEATURES].notna().all(axis=1)
-        n_invalidos = (~validos).sum()
-        if n_invalidos:
-            st.warning(f"{n_invalidos} linha(s) com valores ausentes serão ignoradas na predição.")
-
-        df_valid = df_score[validos].copy()
-        proba = model.predict_proba(df_valid[FEATURES])[:, 1]
-        df_valid["probabilidade_risco"] = proba.round(3)
-        df_valid["classificacao_risco"] = [classificar_risco(p)[0] for p in proba]
-        df_valid = df_valid.sort_values("probabilidade_risco", ascending=False)
-
-        st.success(f"{len(df_valid)} aluno(s) avaliado(s).")
+        result, valid = validate_prediction_batch(original, FEATURES, RANGES)
+        result["probabilidade_risco"] = np.nan
+        result["classificacao_risco"] = pd.NA
+        if valid.any():
+            probabilities = model.predict_proba(result.loc[valid, FEATURES])[:, 1]
+            result.loc[valid, "probabilidade_risco"] = np.round(probabilities, 4)
+            result.loc[valid, "classificacao_risco"] = [classify_risk(p, BANDS) for p in probabilities]
+        else:
+            st.warning("Nenhuma linha válida foi encontrada; consulte a coluna motivo_erro.")
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Risco alto (≥66%)", int((proba >= 0.66).sum()))
-        c2.metric("Risco médio (33–66%)", int(((proba >= 0.33) & (proba < 0.66)).sum()))
-        c3.metric("Risco baixo (<33%)", int((proba < 0.33).sum()))
+        c1.metric("Linhas recebidas", len(result))
+        c2.metric("Linhas válidas", int(valid.sum()))
+        c3.metric("Linhas inválidas", int((~valid).sum()))
+        st.dataframe(result, use_container_width=True, height=460)
 
-        cols_mostrar = (["RA"] if "RA" in df_valid.columns else []) + FEATURES + [
-            "probabilidade_risco",
-            "classificacao_risco",
-        ]
-        st.dataframe(df_valid[cols_mostrar], use_container_width=True, height=420)
-
-        st.markdown("#### Distribuição do risco entre os alunos avaliados")
-        faixas = pd.cut(
-            proba,
-            bins=[0, 0.33, 0.66, 1.0],
-            labels=["Baixo (<33%)", "Médio (33–66%)", "Alto (≥66%)"],
-            include_lowest=True,
-        )
-        contagem = faixas.value_counts().reindex(["Baixo (<33%)", "Médio (33–66%)", "Alto (≥66%)"])
-        st.bar_chart(contagem.rename("Nº de alunos"))
-
-        csv_saida = df_valid[cols_mostrar].to_csv(index=False).encode("utf-8")
+        export = result.to_csv(index=False, sep=";").encode("utf-8-sig")
         st.download_button(
-            "⬇️ Baixar resultado completo (CSV)",
-            data=csv_saida,
-            file_name=f"predicao_risco_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
+            "Baixar resultado completo",
+            export,
+            f"predicao_risco_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            "text/csv",
         )
 
-# --------------------------------------------------------------------------- PÁGINA 3
 else:
     st.title("Sobre o modelo")
+    st.markdown(f"**Target:** {artifact['target_definition']}")
+    st.markdown(f"**Perfil:** `{artifact['model_profile']}`")
+    st.markdown(f"**Calibrado:** {'sim' if artifact['calibrated'] else 'não'}")
     st.markdown(
-        """
-Este modelo (**Random Forest**) foi treinado com dados da Pesquisa Extensiva do
-Desenvolvimento Educacional (**PEDE**) de 2022, 2023 e 2024 da Associação Passos Mágicos.
-
-**Definição do alvo:** o modelo estima a probabilidade de o aluno apresentar
-**defasagem de nível (Fase efetiva abaixo da Fase ideal) no ano seguinte**, a partir
-dos indicadores do ano corrente — permitindo agir *antes* de a defasagem se concretizar.
-"""
+        f"**Avaliação temporal:** treino {artifact['metrics']['train_period']} e "
+        f"teste {artifact['metrics']['test_period']}"
     )
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("AUC (validação cruzada, 5-fold)", f"{metrics['auc_cv_mean']:.3f} ± {metrics['auc_cv_std']:.3f}")
-    c2.metric("AUC (conjunto de teste)", f"{metrics['auc_holdout']:.3f}")
-    c3.metric("Precisão — classe 'em risco'", f"{metrics['precision_em_risco']:.0%}")
-    c4.metric("Recall — classe 'em risco'", f"{metrics['recall_em_risco']:.0%}")
+    metric_cols = st.columns(5)
+    metric_cols[0].metric("ROC-AUC", f"{METRICS['roc_auc']:.3f}")
+    metric_cols[1].metric("PR-AUC", f"{METRICS['pr_auc']:.3f}")
+    metric_cols[2].metric("Recall", f"{METRICS['recall']:.0%}")
+    metric_cols[3].metric("Precisão", f"{METRICS['precision']:.0%}")
+    metric_cols[4].metric("F1", f"{METRICS['f1']:.3f}")
 
-    st.markdown(f"""
-- **Amostra de treino:** {metrics['n_treino']} pares aluno-ano (RA presente em dois anos consecutivos).
-- **Taxa-base de risco na amostra:** {metrics['taxa_risco_base']:.0%}.
-- **Tipo de modelo:** {artifact['model_type']}.
-- **Data do treinamento:** {artifact['trained_at']}.
-""")
+    st.subheader("Comparação de modelos")
+    comparison = pd.DataFrame(artifact["metrics"]["model_comparison"]).T
+    columns = [c for c in ["roc_auc", "pr_auc", "recall", "precision", "f1", "brier"] if c in comparison]
+    st.dataframe(comparison[columns], use_container_width=True)
 
-    st.markdown("#### Importância das variáveis")
-    grafico_importancia(importancias)
+    st.subheader("Importância global")
+    show_global_importance(artifact)
 
-    st.markdown("#### Faixa de valores observada no treinamento (referência)")
-    df_ranges = pd.DataFrame(ranges).T.round(2)
-    df_ranges.index = [NOMES_AMIGAVEIS.get(i, i) for i in df_ranges.index]
-    st.dataframe(df_ranges, use_container_width=True)
-
-    st.info(
-        "**Limitações:** o modelo foi treinado com alunos que permaneceram no programa "
-        "em dois anos consecutivos (~1.290 pares); alunos novos ou com dados incompletos "
-        "não fazem parte do treinamento. Recomenda-se retreinar o modelo periodicamente "
-        "(script `train_model.py`) à medida que novos ciclos do PEDE forem concluídos."
+    st.warning(
+        "Este modelo é uma ferramenta de apoio. A pontuação não deve produzir decisões "
+        "automáticas, punições ou exclusão de oportunidades. Os casos sinalizados precisam "
+        "ser avaliados pela equipe pedagógica e psicossocial."
     )
