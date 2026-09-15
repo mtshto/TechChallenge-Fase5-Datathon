@@ -39,6 +39,18 @@ FEATURE_LABELS = {
     "Fase_num": "Fase atual",
 }
 
+FIELD_DESCRIPTIONS = {
+    "IAA_N": "Autoavaliação do aluno no ciclo atual",
+    "IEG_N": "Indicador de engajamento no ciclo atual",
+    "IPS_N": "Indicador psicossocial no ciclo atual",
+    "IPP_N": "Indicador psicopedagógico no ciclo atual",
+    "IDA_N": "Indicador de desempenho acadêmico no ciclo atual",
+    "IAN_N": "Indicador de adequação de nível no ciclo atual",
+    "IPV_N": "Indicador de ponto de virada no ciclo atual",
+    "Defasagem_N": "Defasagem atual em anos; valores negativos indicam defasagem",
+    "Fase_num": "Número da fase atual; ALFA deve ser informado como 0",
+}
+
 HARD_LIMITS = {
     "IAA_N": (0.0, 10.0),
     "IEG_N": (0.0, 10.0),
@@ -75,6 +87,38 @@ def prepare_numeric_frame(df: pd.DataFrame, columns: Iterable[str]) -> pd.DataFr
             out[column] = np.nan
         out[column] = to_numeric_series(out[column])
     return out
+
+
+def prediction_field_guide(features: list[str], ranges: dict) -> pd.DataFrame:
+    """Monta o dicionário de campos exibido na tela de predição em lote."""
+
+    rows = [
+        {
+            "Coluna": "RA",
+            "Significado": "Identificador do aluno para rastrear cada resultado",
+            "Faixa/formato": "Texto único por aluno",
+            "Obrigatória": "Não, mas recomendada",
+            "Valor vazio": "Permitido",
+        }
+    ]
+    for feature in features:
+        limits = ranges[feature]
+        low = float(limits["hard_min"])
+        high = float(limits["hard_max"])
+        if feature in {"Defasagem_N", "Fase_num"}:
+            accepted_range = f"Inteiro de {int(low)} a {int(high)}"
+        else:
+            accepted_range = f"Número de {low:g} a {high:g}"
+        rows.append(
+            {
+                "Coluna": feature,
+                "Significado": FIELD_DESCRIPTIONS.get(feature, FEATURE_LABELS.get(feature, feature)),
+                "Faixa/formato": accepted_range,
+                "Obrigatória": "Sim, a coluna deve existir",
+                "Valor vazio": "Permitido; será imputado pelo modelo",
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def validate_prediction_batch(

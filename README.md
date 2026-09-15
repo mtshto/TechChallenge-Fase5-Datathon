@@ -73,6 +73,7 @@ O script sempre avalia os dois perfis. O argumento `--model-profile` define qual
 
 ```text
 .
+├── analise_pede_datathon.ipynb
 ├── app.py
 ├── model_utils.py
 ├── train_model.py
@@ -85,9 +86,17 @@ O script sempre avalia os dois perfis. O argumento `--model-profile` define qual
 └── model_risco_defasagem.pkl       # gerado após o treinamento
 ```
 
+O notebook `analise_pede_datathon.ipynb` contém o estudo exploratório das três
+abas, as respostas às 11 perguntas do Datathon e a avaliação temporal alinhada
+ao `train_model.py`.
+
 ## Preparação do ambiente
 
 Recomendado: Python 3.11.
+
+O deploy também é compatível com Python 3.14. As versões de Streamlit e pandas
+foram selecionadas com pacotes binários prontos para essa versão, evitando a
+compilação demorada de dependências no Community Cloud.
 
 ```bash
 python -m venv .venv
@@ -173,6 +182,10 @@ O app aceita CSV e XLSX. No resultado:
 - `motivo_erro` descreve campos ausentes, não numéricos, fora da faixa ou RA duplicado.
 - `avisos_processamento` registra imputações e pequenos ajustes de arredondamento.
 
+Antes do upload, a própria tela apresenta o nome exato, significado, faixa e
+regra de preenchimento de cada campo necessário. O template baixado pelo app já
+contém todas as colunas exigidas.
+
 ## Interpretação
 
 As faixas operacionais são derivadas do threshold salvo durante o treinamento:
@@ -194,7 +207,6 @@ O gráfico de importância utiliza permutação no teste temporal e representa c
 
 ## Entregáveis ainda dependentes do grupo
 
-- revisar o notebook analítico e responder às 11 perguntas do Datathon;
 - adicionar link do Streamlit Community Cloud;
 - adicionar apresentação gerencial;
 - adicionar vídeo de até cinco minutos;

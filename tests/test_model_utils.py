@@ -5,6 +5,7 @@ from model_utils import (
     FeatureBuilder,
     RiskBands,
     classify_risk,
+    prediction_field_guide,
     to_numeric_series,
     validate_prediction_batch,
 )
@@ -90,3 +91,12 @@ def test_batch_validation_clips_only_small_boundary_residue():
     result, valid = validate_prediction_batch(frame, RAW, ranges)
     assert not valid.iloc[0]
     assert "fora de [0, 10]" in result["motivo_erro"].iloc[0]
+
+
+def test_prediction_field_guide_lists_every_required_feature():
+    ranges = {name: {"hard_min": 0, "hard_max": 10} for name in RAW}
+    ranges["Defasagem_N"] = {"hard_min": -10, "hard_max": 10}
+    guide = prediction_field_guide(RAW, ranges)
+    assert guide.iloc[0]["Coluna"] == "RA"
+    assert set(RAW).issubset(set(guide["Coluna"]))
+    assert (guide.loc[guide["Coluna"].isin(RAW), "Obrigatória"] == "Sim, a coluna deve existir").all()

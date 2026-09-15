@@ -13,6 +13,7 @@ from model_utils import (
     FEATURE_LABELS,
     RiskBands,
     classify_risk,
+    prediction_field_guide,
     validate_prediction_batch,
 )
 
@@ -164,6 +165,22 @@ if page == "Predição individual":
 elif page == "Predição em lote":
     st.title("Predição em lote")
     st.write("O resultado preserva linhas inválidas e informa o motivo do erro.")
+    st.subheader("Campos necessários no arquivo")
+    st.info(
+        "Use exatamente os nomes de coluna apresentados abaixo. Todas as colunas dos "
+        "indicadores são obrigatórias, mas células isoladas podem ficar vazias: nesses "
+        "casos, o Pipeline aplicará a imputação aprendida no treinamento. A coluna RA é "
+        "opcional, porém recomendada para identificar cada aluno."
+    )
+    st.dataframe(
+        prediction_field_guide(FEATURES, RANGES),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(
+        "Exemplos: ALFA deve ser Fase_num = 0; Defasagem_N = -1 representa um ano "
+        "de defasagem. Para evitar erros de digitação, baixe o template pronto."
+    )
     st.download_button(
         "Baixar template CSV",
         build_template(FEATURES, RANGES),
