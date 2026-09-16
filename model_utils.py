@@ -66,6 +66,62 @@ HARD_LIMITS = {
 BOUNDARY_TOLERANCE = 0.02
 
 
+def positive_class_index(model, positive_label=1) -> int:
+    """Retorna a posição real da classe positiva em ``predict_proba``.
+
+    Evita assumir que a segunda coluna sempre representa risco = 1.
+    """
+
+    classes = np.asarray(getattr(model, "classes_", []))
+    matches = np.flatnonzero(classes == positive_label)
+    if len(matches) != 1:
+        raise ValueError(
+            f"Classe positiva {positive_label!r} não encontrada de forma única. "
+            f"Classes disponíveis: {classes.tolist()}"
+        )
+    return int(matches[0])
+
+
+def predict_positive_probability(model, frame: pd.DataFrame, positive_label=1) -> np.ndarray:
+    """Calcula a probabilidade da classe positiva sem depender da ordem das classes."""
+
+    index = positive_class_index(model, positive_label=positive_label)
+    return np.asarray(model.predict_proba(frame))[:, index]
+
+
+def distribution_warnings(
+    df: pd.DataFrame,
+    features: list[str],
+    ranges: dict,
+) -> pd.Series:
+    """Aponta valores válidos, mas fora do intervalo visto no treinamento.
+
+    Esses valores não são alterados. O alerta informa que a estimativa é uma
+    extrapolação e, portanto, merece interpretação mais cautelosa.
+    """
+
+    messages = pd.Series("", index=df.index, dtype="string")
+
+    def append(mask: pd.Series, message: str) -> None:
+        empty = messages.eq("")
+        messages.loc[mask & empty] = message
+        messages.loc[mask & ~empty] = messages.loc[mask & ~empty] + "; " + message
+
+    for feature in features:
+        if feature not in df.columns or feature not in ranges:
+            continue
+        values = to_numeric_series(df[feature])
+        observed_min = ranges[feature].get("observed_min")
+        observed_max = ranges[feature].get("observed_max")
+        if observed_min is not None:
+            low = float(observed_min)
+            append(values.notna() & values.lt(low), f"{feature} abaixo do mínimo observado ({low:g})")
+        if observed_max is not None:
+            high = float(observed_max)
+            append(values.notna() & values.gt(high), f"{feature} acima do máximo observado ({high:g})")
+    return messages
+
+
 def to_numeric_series(series: pd.Series) -> pd.Series:
     """Converte números, inclusive textos com vírgula decimal, para float."""
 
@@ -177,10 +233,17 @@ def validate_prediction_batch(
         duplicated = output["RA"].notna() & output["RA"].duplicated(keep=False)
         append_message(errors, duplicated, "RA duplicado no arquivo")
 
+    out_of_distribution = distribution_warnings(output, features, ranges)
+    append_message(
+        warnings,
+        out_of_distribution.ne(""),
+        "fora da faixa observada no treinamento: " + out_of_distribution,
+    )
+
     valid = errors.eq("")
     status = np.select(
         [~valid, warnings.ne("")],
-        ["inválido", "válido com imputação/ajuste"],
+        ["inválido", "válido com alerta"],
         default="válido",
     )
     output["status_processamento"] = status

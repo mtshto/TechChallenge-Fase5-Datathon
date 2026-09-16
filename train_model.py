@@ -48,6 +48,7 @@ from model_utils import (
     HARD_LIMITS,
     OPTIONAL_RAW_FEATURES,
     FeatureBuilder,
+    predict_positive_probability,
     prepare_numeric_frame,
 )
 
@@ -254,7 +255,7 @@ def inner_threshold(X_train, y_train, raw_features, profile, recall_target, rand
     )
     model, _ = build_calibrated_model(raw_features, profile, y_fit)
     model.fit(X_fit, y_fit)
-    probabilities = model.predict_proba(X_val)[:, 1]
+    probabilities = predict_positive_probability(model, X_val)
     return select_threshold(y_val, probabilities, recall_target)
 
 
@@ -262,7 +263,7 @@ def evaluate_profile(X_train, y_train, X_test, y_test, raw_features, profile, re
     threshold = inner_threshold(X_train, y_train, raw_features, profile, recall_target)
     model, calibrated = build_calibrated_model(raw_features, profile, y_train)
     model.fit(X_train, y_train)
-    probabilities = model.predict_proba(X_test)[:, 1]
+    probabilities = predict_positive_probability(model, X_test)
     metrics = classification_metrics(y_test, probabilities, threshold)
     metrics["calibrated"] = calibrated
     return model, metrics, probabilities
@@ -387,4 +388,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

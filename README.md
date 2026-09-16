@@ -17,6 +17,9 @@ Projeto de Data Science desenvolvido para apoiar a Associação Passos Mágicos 
 - threshold escolhido apenas dentro do conjunto de treino;
 - métricas ROC-AUC, PR-AUC, recall, precisão, F1, Brier e matriz de confusão;
 - validação de entradas e preservação de erros no Streamlit;
+- alerta de extrapolação quando a entrada está fora da faixa observada no treino;
+- seleção explícita da classe positiva em `predict_proba`, sem assumir sua posição;
+- comparação visível entre a probabilidade e o threshold operacional;
 - importância global nomeada corretamente;
 - versões e metadados do treinamento registrados.
 
@@ -180,7 +183,8 @@ O app aceita CSV e XLSX. No resultado:
 - registros inválidos continuam no arquivo;
 - `status_processamento` informa se a linha foi avaliada;
 - `motivo_erro` descreve campos ausentes, não numéricos, fora da faixa ou RA duplicado.
-- `avisos_processamento` registra imputações e pequenos ajustes de arredondamento.
+- `avisos_processamento` registra imputações, pequenos ajustes de arredondamento e
+  valores válidos que estejam fora da faixa realmente observada no treinamento.
 
 Antes do upload, a própria tela apresenta o nome exato, significado, faixa e
 regra de preenchimento de cada campo necessário. O template baixado pelo app já
@@ -193,6 +197,15 @@ As faixas operacionais são derivadas do threshold salvo durante o treinamento:
 - baixo - rotina;
 - monitoramento;
 - prioritário.
+
+No app, zero é tratado como uma nota informada, e não como valor ausente. Uma
+célula vazia no processamento em lote é que aciona a imputação do Pipeline. Se
+uma nota estiver dentro da escala permitida, mas além do intervalo observado no
+treinamento, a previsão é mantida e recebe um alerta de menor confiabilidade.
+
+A probabilidade calibrada não é uma soma das notas. Ela estima a frequência do
+desfecho em padrões históricos semelhantes e pode ser comprimida pela calibração.
+Por isso, o app também mostra o threshold usado para definir a faixa prioritária.
 
 O gráfico de importância utiliza permutação no teste temporal e representa comportamento global do modelo. Ele não explica uma predição individual.
 

@@ -5,6 +5,8 @@ from model_utils import (
     FeatureBuilder,
     RiskBands,
     classify_risk,
+    distribution_warnings,
+    positive_class_index,
     prediction_field_guide,
     to_numeric_series,
     validate_prediction_batch,
@@ -74,7 +76,7 @@ def test_batch_validation_accepts_missing_cells_for_pipeline_imputation():
     ranges["Defasagem_N"] = {"hard_min": -10, "hard_max": 10}
     result, valid = validate_prediction_batch(frame, RAW, ranges)
     assert valid.iloc[0]
-    assert result["status_processamento"].iloc[0] == "válido com imputação/ajuste"
+    assert result["status_processamento"].iloc[0] == "válido com alerta"
     assert "IPS_N será imputado" in result["avisos_processamento"].iloc[0]
 
 
@@ -100,3 +102,27 @@ def test_prediction_field_guide_lists_every_required_feature():
     assert guide.iloc[0]["Coluna"] == "RA"
     assert set(RAW).issubset(set(guide["Coluna"]))
     assert (guide.loc[guide["Coluna"].isin(RAW), "Obrigatória"] == "Sim, a coluna deve existir").all()
+
+
+def test_positive_class_index_does_not_assume_second_column():
+    class DummyModel:
+        classes_ = np.array([1, 0])
+
+    assert positive_class_index(DummyModel()) == 0
+
+
+def test_distribution_warning_flags_values_unseen_during_training():
+    frame = sample_frame().iloc[[0]].copy()
+    frame["IEG_N"] = 0
+    ranges = {
+        name: {
+            "hard_min": 0,
+            "hard_max": 10,
+            "observed_min": 0,
+            "observed_max": 10,
+        }
+        for name in RAW
+    }
+    ranges["IEG_N"]["observed_min"] = 2
+    warnings = distribution_warnings(frame, RAW, ranges)
+    assert "IEG_N abaixo do mínimo observado (2)" in warnings.iloc[0]

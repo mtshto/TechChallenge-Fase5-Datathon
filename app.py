@@ -13,6 +13,8 @@ from model_utils import (
     FEATURE_LABELS,
     RiskBands,
     classify_risk,
+    distribution_warnings,
+    predict_positive_probability,
     prediction_field_guide,
     validate_prediction_batch,
 )
@@ -69,11 +71,26 @@ def input_widget(feature: str, ranges: dict):
     observed_mean = limits.get("observed_mean")
     default = float(observed_mean) if observed_mean is not None else (lower + upper) / 2
     default = min(max(default, lower), upper)
+    observed_min = limits.get("observed_min")
+    observed_max = limits.get("observed_max")
+    help_text = None
+    if observed_min is not None and observed_max is not None:
+        help_text = (
+            f"Faixa observada no treinamento: {float(observed_min):g} a "
+            f"{float(observed_max):g}. Valores além dela geram alerta de extrapolação."
+        )
 
     if feature in {"Defasagem_N", "Fase_num"}:
-        return st.number_input(label, int(lower), int(upper), int(round(default)), 1)
+        return st.number_input(
+            label,
+            int(lower),
+            int(upper),
+            int(round(default)),
+            1,
+            help=help_text,
+        )
     step = 0.5 if feature == "IAN_N" else 0.1
-    return st.slider(label, lower, upper, default, step)
+    return st.slider(label, lower, upper, default, step, help=help_text)
 
 
 def personalized_recommendations(row: pd.Series) -> list[str]:
@@ -139,6 +156,11 @@ st.sidebar.caption(f"Threshold prioritário: {artifact['threshold']:.3f}")
 if page == "Predição individual":
     st.title("Predição individual de risco de defasagem")
     st.write(artifact["target_definition"])
+    st.info(
+        "Nos indicadores, **zero é uma nota real**, não um campo ausente. "
+        "Se a avaliação não existir, utilize a predição em lote e deixe a célula vazia "
+        "para que o Pipeline aplique a imputação aprendida no treinamento."
+    )
     with st.form("individual"):
         values = {}
         columns = st.columns(2)
@@ -149,12 +171,35 @@ if page == "Predição individual":
 
     if submitted:
         frame = pd.DataFrame([values], columns=FEATURES)
-        probability = float(model.predict_proba(frame)[0, 1])
+        probability = float(predict_positive_probability(model, frame)[0])
         classification = classify_risk(probability, BANDS)
+        distribution_message = distribution_warnings(frame, FEATURES, RANGES).iloc[0]
+        if distribution_message:
+            st.warning(
+                "Esta combinação contém valores fora da faixa observada no treinamento. "
+                "A probabilidade foi calculada, mas deve ser tratada como uma extrapolação "
+                f"de menor confiabilidade. Detalhes: {distribution_message}."
+            )
         c1, c2 = st.columns([1, 2])
         c1.metric("Probabilidade calibrada", f"{probability:.1%}")
         c1.metric("Faixa operacional", classification)
         c1.progress(float(np.clip(probability, 0, 1)))
+        threshold = float(artifact["threshold"])
+        difference = probability - threshold
+        if difference >= 0:
+            c1.caption(
+                f"Limite prioritário: {threshold:.1%}. A estimativa ficou "
+                f"{difference:.1%} acima desse limite."
+            )
+        else:
+            c1.caption(
+                f"Limite prioritário: {threshold:.1%}. A estimativa ficou "
+                f"{abs(difference):.1%} abaixo desse limite."
+            )
+        c1.caption(
+            "Probabilidade calibrada não é uma soma das notas: ela representa o risco "
+            "estimado a partir de padrões históricos semelhantes."
+        )
         with c2:
             st.subheader("Orientações para avaliação humana")
             for recommendation in personalized_recommendations(frame.iloc[0]):
@@ -202,7 +247,7 @@ elif page == "Predição em lote":
         result["probabilidade_risco"] = np.nan
         result["classificacao_risco"] = pd.NA
         if valid.any():
-            probabilities = model.predict_proba(result.loc[valid, FEATURES])[:, 1]
+            probabilities = predict_positive_probability(model, result.loc[valid, FEATURES])
             result.loc[valid, "probabilidade_risco"] = np.round(probabilities, 4)
             result.loc[valid, "classificacao_risco"] = [classify_risk(p, BANDS) for p in probabilities]
         else:
