@@ -1,105 +1,203 @@
-# Datathon Passos Mágicos - Risco de Defasagem
+# Datathon Passos Mágicos
 
-Projeto de Data Science desenvolvido para apoiar a Associação Passos Mágicos na identificação antecipada de alunos que podem apresentar defasagem de nível no ciclo seguinte.
+## Previsão de risco de defasagem escolar
 
-> O modelo é uma ferramenta de apoio. Nenhum resultado deve produzir decisões automáticas, punições ou exclusão de oportunidades. Todo alerta precisa de avaliação humana.
+Projeto de Data Science desenvolvido a partir dos dados educacionais da **Associação Passos Mágicos**, com informações de 2022, 2023 e 2024.
 
-## Principais melhorias desta versão
+O trabalho combina análise exploratória, acompanhamento longitudinal, Machine Learning e uma aplicação em Streamlit para responder à seguinte pergunta:
 
-- target explícito e configurável;
-- pares longitudinais preservam `RA`, `Ano_N` e `Ano_N1`;
-- avaliação principal temporal: 2022 para 2023 no treino e 2023 para 2024 no teste;
-- comparação com baseline de prevalência e persistência;
-- comparação entre modelo completo e modelo acionável;
-- feature engineering dentro do `Pipeline`;
-- tratamento de ausentes sem excluir silenciosamente todos os registros incompletos;
-- calibração de probabilidades;
-- threshold escolhido apenas dentro do conjunto de treino;
-- métricas ROC-AUC, PR-AUC, recall, precisão, F1, Brier e matriz de confusão;
-- validação de entradas e preservação de erros no Streamlit;
-- alerta de extrapolação quando a entrada está fora da faixa observada no treino;
-- seleção explícita da classe positiva em `predict_proba`, sem assumir sua posição;
-- comparação visível entre a probabilidade e o threshold operacional;
-- importância global nomeada corretamente;
-- versões e metadados do treinamento registrados.
+> Como utilizar os indicadores educacionais para identificar, com antecedência, estudantes que podem apresentar defasagem no próximo ciclo?
 
-## Resultado validado com a base PEDE 2024
+### Acesse o projeto
 
-O artefato incluído neste pacote foi treinado no modo `future_defasagem`, com o
-perfil `complete`. A avaliação temporal produziu:
+- [Aplicação no Streamlit](https://techchallenge-fase5-datathon.streamlit.app/)
+- [Repositório no GitHub](https://github.com/mtshto/TechChallenge-Fase5-Datathon)
 
-| Métrica | Resultado |
-|---|---:|
-| ROC-AUC | 0,8484 |
-| PR-AUC | 0,7900 |
-| Recall | 77,60% |
-| Precisão | 63,56% |
-| F1-score | 0,6988 |
-| Brier score | 0,1719 |
+---
 
-Foram utilizados 600 pares de 2022→2023 no treino e 765 pares de 2023→2024 no
-teste temporal. O threshold operacional foi 0,4934. Esses valores devem ser
-recalculados sempre que a base ou a definição do target mudar.
+## Visão geral
 
-## Definições possíveis do target
+A Associação Passos Mágicos acompanha o desenvolvimento de seus estudantes por meio de indicadores acadêmicos, psicossociais, psicopedagógicos e de engajamento. Neste projeto, esses dados foram utilizados em duas frentes complementares:
 
-O treinamento aceita duas interpretações:
+1. **Compreender a evolução dos estudantes** entre 2022 e 2024;
+2. **Estimar a probabilidade de defasagem no ciclo seguinte**, apoiando ações preventivas da equipe.
 
-### 1. `future_defasagem` - padrão
+A solução final não se limita a gerar uma previsão. Ela também valida os dados de entrada, apresenta faixas de prioridade, permite a análise individual ou em lote e mantém a avaliação humana como parte central da decisão.
 
-Prevê se o aluno apresentará `Defasagem_N1 <= -1` no ciclo seguinte, incluindo alunos que já estavam defasados.
+```mermaid
+flowchart LR
+    A[Dados PEDE<br/>2022–2024] --> B[Limpeza e<br/>padronização]
+    B --> C[Análise<br/>longitudinal]
+    C --> D[Modelo de<br/>Machine Learning]
+    D --> E[Probabilidade<br/>calibrada]
+    E --> F[Aplicação<br/>Streamlit]
+    F --> G[Acompanhamento<br/>humano]
+```
 
-Pergunta de negócio:
+---
 
-> Qual é a probabilidade de o aluno apresentar defasagem no próximo ciclo?
+## Principais resultados
 
-### 2. `new_defasagem`
+O modelo disponibilizado foi treinado para prever se o estudante apresentará defasagem no próximo ciclo. Para simular uma situação real de uso, a avaliação respeitou a ordem do tempo:
 
-Considera somente alunos com `Defasagem_N >= 0` e prevê se eles entrarão em defasagem no ciclo seguinte.
+- **treinamento:** dados de 2022 para prever 2023;
+- **teste temporal:** dados de 2023 para prever 2024.
 
-Pergunta de negócio:
+### Desempenho no teste temporal
 
-> Entre os alunos atualmente adequados, quem possui maior risco de entrar em defasagem?
+| Métrica | Resultado | Interpretação |
+|---|---:|---|
+| ROC-AUC | **0,8484** | Boa capacidade de separar estudantes com e sem risco |
+| PR-AUC | **0,7900** | Bom desempenho para identificar a classe de interesse |
+| Recall | **77,60%** | Identificou aproximadamente 8 em cada 10 estudantes que apresentaram defasagem |
+| Precisão | **63,56%** | Proporção de alertas prioritários que se confirmaram |
+| F1-score | **0,6988** | Equilíbrio entre recall e precisão |
+| Brier score | **0,1719** | Erro das probabilidades calibradas; quanto menor, melhor |
 
-Essa modalidade pode gerar uma amostra menor. Verifique a quantidade de positivos antes de adotá-la.
+Foram utilizados **600 pares de estudantes** de 2022→2023 no treinamento e **765 pares** de 2023→2024 no teste. O threshold operacional foi definido em **49,34%**, utilizando apenas informações do conjunto de treinamento.
 
-## Perfis de modelo
+> O recall recebeu atenção especial porque, neste contexto, deixar de identificar um estudante que precisa de apoio pode ser mais prejudicial do que gerar um alerta adicional para avaliação da equipe.
 
-| Perfil | Informações utilizadas | Objetivo |
+### Comparação dos modelos
+
+| Abordagem | ROC-AUC | Recall | Objetivo |
+|---|---:|---:|---|
+| Modelo completo | **0,8484** | 77,60% | Maximizar a capacidade preditiva |
+| Modelo acionável | **0,8084** | 79,22% | Avaliar sinais sem usar diretamente IAN e defasagem atual |
+| Baseline de persistência | 0,6765 | 72,73% | Comparação com uma regra simples baseada na situação atual |
+
+O modelo completo apresentou o melhor equilíbrio geral. O modelo acionável mostrou que desempenho, engajamento e contexto também fornecem informações relevantes, mesmo sem utilizar diretamente a defasagem atual.
+
+---
+
+## Indicadores analisados
+
+| Indicador | Dimensão acompanhada |
+|---|---|
+| **IAN** | Adequação do nível do estudante |
+| **IDA** | Desempenho acadêmico |
+| **IEG** | Engajamento |
+| **IAA** | Autoavaliação |
+| **IPS** | Aspectos psicossociais |
+| **IPP** | Acompanhamento psicopedagógico |
+| **IPV** | Ponto de Virada |
+| **INDE** | Índice de Desenvolvimento Educacional |
+
+O notebook apresenta o estudo exploratório, a evolução dos indicadores, as respostas às perguntas do Datathon e a avaliação do modelo.
+
+---
+
+## Definição do problema preditivo
+
+O treinamento permite utilizar duas definições de target.
+
+### `future_defasagem` — modelo utilizado no app
+
+Prevê se o estudante apresentará `Defasagem_N1 <= -1` no ciclo seguinte, incluindo aqueles que já se encontram defasados.
+
+**Pergunta respondida:**
+
+> Qual é a probabilidade de o estudante apresentar defasagem no próximo ciclo?
+
+### `new_defasagem` — análise alternativa
+
+Considera somente estudantes com `Defasagem_N >= 0` e estima o risco de entrada em defasagem no ciclo seguinte.
+
+**Pergunta respondida:**
+
+> Entre os estudantes atualmente adequados, quem apresenta maior risco de entrar em defasagem?
+
+Essa segunda definição reduz a amostra disponível e deve ser avaliada antes de ser adotada em produção.
+
+---
+
+## Perfis do modelo
+
+| Perfil | Informações utilizadas | Finalidade |
 |---|---|---|
-| `complete` | Inclui IAN e Defasagem atual | Maior capacidade preditiva |
-| `actionable` | Exclui IAN e Defasagem atual | Avaliar sinais anteriores acadêmicos, emocionais e de engajamento |
+| `complete` | Inclui IAN e defasagem atual | Obter maior capacidade preditiva |
+| `actionable` | Exclui IAN e defasagem atual | Investigar sinais acadêmicos, psicossociais e de engajamento |
 
-O script sempre avalia os dois perfis. O argumento `--model-profile` define qual deles será salvo para produção.
+O treinamento avalia os dois perfis. O argumento `--model-profile` define qual deles será salvo no artefato utilizado pela aplicação.
 
-## Estrutura
+---
+
+## Aplicação Streamlit
+
+A aplicação transforma o modelo em uma ferramenta simples de apoio ao acompanhamento dos estudantes.
+
+### Funcionalidades
+
+- predição individual;
+- processamento em lote por CSV ou XLSX;
+- download de um arquivo modelo com as colunas necessárias;
+- validação de campos e faixas permitidas;
+- preservação das linhas inválidas, acompanhadas do motivo do erro;
+- probabilidade calibrada e faixa de prioridade;
+- alertas para valores fora do intervalo observado no treinamento;
+- métricas, limitações e importância global das variáveis.
+
+### Campos necessários no processamento em lote
+
+| Campo | Descrição | Faixa aceita |
+|---|---|---:|
+| `IAA_N` | Indicador de Autoavaliação | 0 a 10 |
+| `IEG_N` | Indicador de Engajamento | 0 a 10 |
+| `IPS_N` | Indicador Psicossocial | 0 a 10 |
+| `IDA_N` | Indicador de Desempenho Acadêmico | 0 a 10 |
+| `IAN_N` | Indicador de Adequação de Nível | 0 a 10 |
+| `IPV_N` | Indicador de Ponto de Virada | 0 a 10 |
+| `Defasagem_N` | Diferença entre a fase atual e a fase esperada | -10 a 10 |
+| `Fase_num` | Número da fase atual do estudante | 0 a 10 |
+| `IPP_N` | Indicador Psicopedagógico | 0 a 10 |
+
+A coluna `RA` é opcional e pode ser utilizada para identificar o registro no arquivo de saída. Se estiver presente, valores duplicados serão sinalizados.
+
+No resultado do processamento:
+
+- `status_processamento` informa se a linha foi avaliada;
+- `motivo_erro` descreve problemas que impediram a previsão;
+- `avisos_processamento` registra imputações e valores fora da faixa observada;
+- registros válidos recebem a probabilidade estimada e a classificação de prioridade.
+
+---
+
+## Estrutura do repositório
 
 ```text
 .
-├── analise_pede_datathon.ipynb
-├── app.py
-├── model_utils.py
-├── train_model.py
-├── requirements.txt
-├── requirements-dev.txt
-├── devcontainer.json
-├── tests/
-│   ├── test_model_utils.py
-│   └── test_training_logic.py
-└── model_risco_defasagem.pkl       # gerado após o treinamento
+├── analise_pede_datathon.ipynb    # análise exploratória e respostas do Datathon
+├── app.py                         # aplicação Streamlit
+├── model_utils.py                 # validações e transformações compartilhadas
+├── train_model.py                 # treinamento e avaliação temporal
+├── model_risco_defasagem.pkl      # Pipeline utilizado pelo app
+├── model_risco_defasagem.metadata.json
+├── requirements.txt               # dependências da aplicação
+├── requirements-dev.txt           # dependências de desenvolvimento e testes
+├── devcontainer.json              # configuração opcional do ambiente
+└── tests/
+    ├── test_model_utils.py
+    └── test_training_logic.py
 ```
 
-O notebook `analise_pede_datathon.ipynb` contém o estudo exploratório das três
-abas, as respostas às 11 perguntas do Datathon e a avaliação temporal alinhada
-ao `train_model.py`.
+---
 
-## Preparação do ambiente
+## Como executar o projeto
 
-Recomendado: Python 3.11.
+### 1. Requisitos
 
-O deploy também é compatível com Python 3.14. As versões de Streamlit e pandas
-foram selecionadas com pacotes binários prontos para essa versão, evitando a
-compilação demorada de dependências no Community Cloud.
+- Python 3.11 ou superior;
+- Git;
+- arquivo da base PEDE 2024 para um novo treinamento.
+
+### 2. Clone o repositório
+
+```bash
+git clone https://github.com/mtshto/TechChallenge-Fase5-Datathon.git
+cd TechChallenge-Fase5-Datathon
+```
+
+### 3. Crie e ative o ambiente virtual
 
 ```bash
 python -m venv .venv
@@ -111,28 +209,39 @@ Windows:
 .venv\Scripts\activate
 ```
 
-Linux/macOS:
+Linux ou macOS:
 
 ```bash
 source .venv/bin/activate
 ```
 
-Instalação:
+### 4. Instale as dependências
+
+Para executar a aplicação:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Para executar os testes:
+Para desenvolvimento, notebook e testes:
 
 ```bash
 pip install -r requirements-dev.txt
-pytest -q
 ```
 
-## Treinamento
+### 5. Execute o Streamlit
 
-Modelo completo para presença de defasagem futura:
+```bash
+streamlit run app.py
+```
+
+O arquivo `model_risco_defasagem.pkl` e o módulo `model_utils.py` devem permanecer na mesma pasta do `app.py`.
+
+---
+
+## Como treinar novamente o modelo
+
+Modelo completo para prever a presença de defasagem futura:
 
 ```bash
 python train_model.py \
@@ -141,7 +250,7 @@ python train_model.py \
   --model-profile complete
 ```
 
-Modelo acionável para nova entrada em defasagem:
+Modelo acionável para prever nova entrada em defasagem:
 
 ```bash
 python train_model.py \
@@ -150,77 +259,73 @@ python train_model.py \
   --model-profile actionable
 ```
 
-Arquivos gerados:
+O treinamento gera:
 
-- `model_risco_defasagem.pkl`: Pipeline treinado e metadados necessários pelo app;
-- `model_risco_defasagem.metadata.json`: versão legível das métricas e configurações.
+- `model_risco_defasagem.pkl`: Pipeline treinado com as regras necessárias para a aplicação;
+- `model_risco_defasagem.metadata.json`: métricas, configurações, faixas e versões utilizadas.
 
-## Estratégia de validação
+O threshold é selecionado em uma divisão interna do conjunto de treinamento, de acordo com o recall definido em `--recall-target`. O período de teste não participa dessa escolha.
 
-O modelo é avaliado simulando o uso futuro:
+---
 
-- treino: indicadores de 2022 para prever 2023;
-- teste intocado: indicadores de 2023 para prever 2024.
+## Testes
 
-O threshold operacional é escolhido em uma divisão interna do conjunto de treino, buscando atingir o recall definido em `--recall-target`. O teste de 2024 não participa da seleção do threshold.
-
-O modelo final de produção é treinado com todos os pares somente depois que a avaliação temporal foi concluída.
-
-## Execução do Streamlit
+Após instalar as dependências de desenvolvimento, execute:
 
 ```bash
-streamlit run app.py
+pytest -q
 ```
 
-O arquivo `model_risco_defasagem.pkl` e o módulo `model_utils.py` precisam estar na mesma pasta do `app.py`.
+Os testes verificam as principais regras de transformação, validação das entradas e construção da base de modelagem.
 
-## Processamento em lote
+---
 
-O app aceita CSV e XLSX. No resultado:
+## Interpretação responsável
 
-- registros válidos recebem probabilidade e classificação;
-- células numéricas ausentes são imputadas pelo mesmo Pipeline do treinamento e geram aviso;
-- registros inválidos continuam no arquivo;
-- `status_processamento` informa se a linha foi avaliada;
-- `motivo_erro` descreve campos ausentes, não numéricos, fora da faixa ou RA duplicado.
-- `avisos_processamento` registra imputações, pequenos ajustes de arredondamento e
-  valores válidos que estejam fora da faixa realmente observada no treinamento.
+As faixas apresentadas no app representam níveis de prioridade para acompanhamento:
 
-Antes do upload, a própria tela apresenta o nome exato, significado, faixa e
-regra de preenchimento de cada campo necessário. O template baixado pelo app já
-contém todas as colunas exigidas.
+- **baixo:** acompanhamento de rotina;
+- **monitoramento:** atenção preventiva;
+- **prioritário:** avaliação mais próxima pela equipe.
 
-## Interpretação
+A probabilidade não é uma simples média dos indicadores. Ela representa a frequência estimada do desfecho em padrões históricos semelhantes. Por isso, deve ser interpretada em conjunto com o contexto pedagógico, psicossocial e familiar do estudante.
 
-As faixas operacionais são derivadas do threshold salvo durante o treinamento:
+O gráfico de importância utiliza permutação no teste temporal e representa o comportamento global do modelo. Ele não explica, isoladamente, a previsão de um estudante específico.
 
-- baixo - rotina;
-- monitoramento;
-- prioritário.
+> **Importante:** o modelo é uma ferramenta de apoio. Nenhum resultado deve gerar decisões automáticas, punições ou exclusão de oportunidades.
 
-No app, zero é tratado como uma nota informada, e não como valor ausente. Uma
-célula vazia no processamento em lote é que aciona a imputação do Pipeline. Se
-uma nota estiver dentro da escala permitida, mas além do intervalo observado no
-treinamento, a previsão é mantida e recebe um alerta de menor confiabilidade.
+---
 
-A probabilidade calibrada não é uma soma das notas. Ela estima a frequência do
-desfecho em padrões históricos semelhantes e pode ser comprimida pela calibração.
-Por isso, o app também mostra o threshold usado para definir a faixa prioritária.
+## Privacidade, ética e limitações
 
-O gráfico de importância utiliza permutação no teste temporal e representa comportamento global do modelo. Ele não explica uma predição individual.
+- utilizar somente dados anonimizados ou pseudonimizados;
+- não publicar nomes, CPF ou outros identificadores diretos;
+- restringir o acesso aos indicadores psicossociais;
+- manter supervisão pedagógica e psicossocial em todas as decisões;
+- acompanhar possíveis diferenças de desempenho entre fases e grupos;
+- considerar que correlação não representa causalidade;
+- revalidar e retreinar o modelo a cada novo ciclo;
+- não utilizar a previsão como diagnóstico individual definitivo.
 
-## Privacidade e uso responsável
+---
 
-- não publicar nomes, CPF ou identificadores diretos;
-- utilizar RA anonimizado ou pseudonimizado;
-- restringir o uso de dados psicossociais;
-- manter supervisão pedagógica e psicossocial;
-- acompanhar desempenho por fase e outros grupos relevantes;
-- retreinar e revalidar o modelo a cada novo ciclo.
+## Tecnologias utilizadas
 
-## Entregáveis ainda dependentes do grupo
+- Python;
+- pandas e NumPy;
+- scikit-learn;
+- Streamlit;
+- Matplotlib e Seaborn;
+- Jupyter Notebook;
+- pytest.
 
-- adicionar link do Streamlit Community Cloud;
-- adicionar apresentação gerencial;
-- adicionar vídeo de até cinco minutos;
-- preencher integrantes e responsabilidades.
+---
+
+## Equipe
+
+- Isabella
+- Matheus
+- Tiago
+- Wesley
+
+Projeto desenvolvido para o **Datathon da Pós-Tech FIAP**, utilizando o case da Associação Passos Mágicos.
