@@ -125,22 +125,14 @@ def build_template(features: list[str], ranges: dict) -> bytes:
 
 def show_global_importance(artifact):
     values = artifact.get("global_permutation_importance", {})
-
     if not values:
         st.info("Importância global não disponível no artefato.")
         return
-
     series = pd.Series(values).sort_values(ascending=False)
-
-    # Traduz os nomes técnicos para os nomes apresentados no app
-    series.index = [
-        FEATURE_LABELS.get(name, name)
-        for name in series.index
-    ]
-
+    #series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
+    #st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
+    
     import matplotlib.pyplot as plt
-
-    # Adapta o gráfico ao tema do Streamlit
     theme = st.context.theme.type
 
     if theme == "dark":
@@ -157,34 +149,27 @@ def show_global_importance(artifact):
     series.plot(
         kind="bar",
         ax=ax,
-        color="#4C78A8",
+        color="#4C78A8"
     )
 
     # Labels dos eixos
-    ax.set_xlabel(
-        "Variável",
-        color=axis_color,
-    )
+    ax.set_xlabel("Variável", color=axis_color)
+    ax.set_ylabel("Queda média de PR-AUC", color=axis_color)
 
-    ax.set_ylabel(
-        "Queda média de PR-AUC",
-        color=axis_color,
-    )
-
-    # Eixo X
+    # Valores dos eixos X e Y
     ax.tick_params(
         axis="x",
         colors=axis_color,
-        rotation=0,
+        rotation=0
     )
 
-    # Eixo Y
     ax.tick_params(
         axis="y",
-        colors=axis_color,
+        colors=axis_color
     )
 
-    # Bordas
+    
+    # Linhas/bordas do gráfico
     for spine in ax.spines.values():
         spine.set_color(axis_color)
 
@@ -192,11 +177,10 @@ def show_global_importance(artifact):
 
     st.pyplot(fig)
 
-    plt.close(fig)
-
+    
     st.caption(
-        "Importância global por permutação no teste temporal. "
-        "Este gráfico não explica a decisão de um aluno específico."
+        "Importância global por permutação no teste temporal. Este gráfico não explica "
+        "a decisão de um aluno específico."
     )
 
 
