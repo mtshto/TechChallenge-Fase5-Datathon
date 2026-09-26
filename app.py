@@ -126,12 +126,18 @@ def build_template(features: list[str], ranges: dict) -> bytes:
 
 def show_global_importance(artifact):
     values = artifact.get("global_permutation_importance", {})
+
     if not values:
         st.info("Importância global não disponível no artefato.")
         return
-    series = pd.Series(values).sort_values(ascending=False)
-    #series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
-    #st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
+
+    series = pd.Series(values).sort_values(ascending=True)
+
+    # Usa os nomes amigáveis definidos no model_utils.py
+    series.index = [
+        FEATURE_LABELS.get(name, name)
+        for name in series.index
+    ]
 
     theme = st.context.theme.type
 
@@ -140,48 +146,63 @@ def show_global_importance(artifact):
     else:
         axis_color = "black"
 
-    fig, ax = plt.subplots(figsize=(12, 3.5))
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     # Fundo transparente
     fig.patch.set_alpha(0)
     ax.set_facecolor("none")
 
+    # Gráfico horizontal
     series.plot(
-        kind="bar",
+        kind="barh",
         ax=ax,
-        color="#4C78A8"
+        color="#4C78A8",
+        width=0.7,
     )
-    
-    # Labels dos eixos
-    ax.set_xlabel("Variável", color=axis_color)
-    ax.set_ylabel("Queda média de PR-AUC", color=axis_color)
 
-    # Valores dos eixos X e Y
+    # Labels
+    ax.set_xlabel(
+        "Queda média de PR-AUC",
+        color=axis_color,
+    )
+
+    ax.set_ylabel(
+        "Variável",
+        color=axis_color,
+    )
+
+    # Eixo X
     ax.tick_params(
         axis="x",
         colors=axis_color,
-        rotation=0
     )
 
+    # Eixo Y
     ax.tick_params(
         axis="y",
-        colors=axis_color
+        colors=axis_color,
     )
 
-    # Linhas/bordas do gráfico
+    # Bordas
     for spine in ax.spines.values():
         spine.set_color(axis_color)
 
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    
-    st.caption(
-        "Importância global por permutação no teste temporal. Este gráfico não explica "
-        "a decisão de um aluno específico."
+    # Grade apenas no eixo X
+    ax.grid(
+        axis="x",
+        alpha=0.2,
     )
 
+    plt.tight_layout()
+
+    st.pyplot(fig, use_container_width=True)
+
+    plt.close(fig)
+
+    st.caption(
+        "Importância global por permutação no teste temporal. "
+        "Este gráfico não explica a decisão de um aluno específico."
+    )
 
 try:
     artifact = load_artifact()
