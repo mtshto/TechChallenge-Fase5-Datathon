@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 
 from model_utils import (
     FEATURE_LABELS,
@@ -29,13 +27,15 @@ st.set_page_config(
     layout="wide",
 )
 
-LOGO_PATH = Path(__file__).parent / "assets" / "passos_magicos.png"
-
-st.image(LOGO_PATH, width=280)
-
+BASE_DIR = Path(__file__).resolve().parent
 
 MODEL_PATH = "model_risco_defasagem.pkl"
+LOGO_PATH = BASE_DIR / "assets" / "passos_magicos.png"
 
+st.image(
+    str(LOGO_PATH),
+    width=280,
+)
 
 @st.cache_resource(show_spinner="Carregando modelo...")
 def load_artifact(path=MODEL_PATH):
@@ -130,59 +130,14 @@ def show_global_importance(artifact):
         st.info("Importância global não disponível no artefato.")
         return
     series = pd.Series(values).sort_values(ascending=False)
-    #series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
-    #st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
-    
-    import matplotlib.pyplot as plt
-    theme = st.context.theme.type
-
-    if theme == "dark":
-        axis_color = "white"
-    else:
-        axis_color = "black"
-
-    fig, ax = plt.subplots(figsize=(12, 3.5))
-
-    # Fundo transparente
-    fig.patch.set_alpha(0)
-    ax.set_facecolor("none")
-
-    series.plot(
-        kind="bar",
-        ax=ax,
-        color="#4C78A8"
-    )
-
-    # Labels dos eixos
-    ax.set_xlabel("Variável", color=axis_color)
-    ax.set_ylabel("Queda média de PR-AUC", color=axis_color)
-
-    # Valores dos eixos X e Y
-    ax.tick_params(
-        axis="x",
-        colors=axis_color,
-        rotation=0
-    )
-
-    ax.tick_params(
-        axis="y",
-        colors=axis_color
-    )
-
-    
-    # Linhas/bordas do gráfico
-    for spine in ax.spines.values():
-        spine.set_color(axis_color)
-
-    plt.tight_layout()
-
-    st.pyplot(fig)
-
-    
+    series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
+    st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
     st.caption(
         "Importância global por permutação no teste temporal. Este gráfico não explica "
         "a decisão de um aluno específico."
     )
+
+
 try:
     artifact = load_artifact()
 except FileNotFoundError:
