@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 
 from model_utils import (
     FEATURE_LABELS,
@@ -131,8 +132,7 @@ def show_global_importance(artifact):
     series = pd.Series(values).sort_values(ascending=False)
     #series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
     #st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
-    
-    import matplotlib.pyplot as plt
+
     theme = st.context.theme.type
 
     if theme == "dark":
@@ -151,7 +151,7 @@ def show_global_importance(artifact):
         ax=ax,
         color="#4C78A8"
     )
-
+    
     # Labels dos eixos
     ax.set_xlabel("Variável", color=axis_color)
     ax.set_ylabel("Queda média de PR-AUC", color=axis_color)
@@ -168,7 +168,6 @@ def show_global_importance(artifact):
         colors=axis_color
     )
 
-    
     # Linhas/bordas do gráfico
     for spine in ax.spines.values():
         spine.set_color(axis_color)
