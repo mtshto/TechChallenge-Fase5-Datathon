@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -25,6 +27,11 @@ st.set_page_config(
     page_icon="🔮",
     layout="wide",
 )
+
+LOGO_PATH = Path(__file__).parent / "assets" / "passos_magicos.png"
+
+st.image(LOGO_PATH, width=280)
+
 
 MODEL_PATH = "model_risco_defasagem.pkl"
 
@@ -118,15 +125,78 @@ def build_template(features: list[str], ranges: dict) -> bytes:
 
 def show_global_importance(artifact):
     values = artifact.get("global_permutation_importance", {})
+
     if not values:
         st.info("Importância global não disponível no artefato.")
         return
+
     series = pd.Series(values).sort_values(ascending=False)
-    series.index = [FEATURE_LABELS.get(name, name) for name in series.index]
-    st.bar_chart(series.rename("Queda média de PR-AUC ao embaralhar a variável"))
+
+    # Traduz os nomes técnicos para os nomes apresentados no app
+    series.index = [
+        FEATURE_LABELS.get(name, name)
+        for name in series.index
+    ]
+
+    import matplotlib.pyplot as plt
+
+    # Adapta o gráfico ao tema do Streamlit
+    theme = st.context.theme.type
+
+    if theme == "dark":
+        axis_color = "white"
+    else:
+        axis_color = "black"
+
+    fig, ax = plt.subplots(figsize=(12, 3.5))
+
+    # Fundo transparente
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
+
+    series.plot(
+        kind="bar",
+        ax=ax,
+        color="#4C78A8",
+    )
+
+    # Labels dos eixos
+    ax.set_xlabel(
+        "Variável",
+        color=axis_color,
+    )
+
+    ax.set_ylabel(
+        "Queda média de PR-AUC",
+        color=axis_color,
+    )
+
+    # Eixo X
+    ax.tick_params(
+        axis="x",
+        colors=axis_color,
+        rotation=0,
+    )
+
+    # Eixo Y
+    ax.tick_params(
+        axis="y",
+        colors=axis_color,
+    )
+
+    # Bordas
+    for spine in ax.spines.values():
+        spine.set_color(axis_color)
+
+    plt.tight_layout()
+
+    st.pyplot(fig)
+
+    plt.close(fig)
+
     st.caption(
-        "Importância global por permutação no teste temporal. Este gráfico não explica "
-        "a decisão de um aluno específico."
+        "Importância global por permutação no teste temporal. "
+        "Este gráfico não explica a decisão de um aluno específico."
     )
 
 
