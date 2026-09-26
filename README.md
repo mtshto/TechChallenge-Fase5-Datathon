@@ -11,7 +11,6 @@ O trabalho combina análise exploratória, acompanhamento longitudinal, Machine 
 ### Acesse o projeto
 
 - [Aplicação no Streamlit](https://techchallenge-fase5-datathon-rtve3hlrtmfjogdva4nyac.streamlit.app/)
-- [Repositório no GitHub](https://github.com/mtshto/TechChallenge-Fase5-Datathon)
 
 ---
 
